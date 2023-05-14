@@ -80,6 +80,44 @@ class Param:
             func(*args,**kw)
         return wapper
 
+class Cookies:
+    """docstring for Cookies"""
+    cookie = ""
+    query = {}
+
+    def __init__(self, cookies=''):
+        self.parserCookies(cookies=cookies)
+        self.cookie = self.toString()
+
+    def setCookies(self, key, value):
+        self.query[key] = value
+        self.cookie = self.toString()
+
+    def getCookies(self, key):
+        return self.query[key]
+
+    def getCookiesAll(self):
+        return self.cookie
+
+    def parserCookies(self, cookies=''):
+        cookies = cookies.replace(" ", "")
+        for x in cookies.split(";"):
+            key, value = tuple(x.split("="))
+            self.query[key] = value
+
+    def __str__(self):
+        keyWithValue = []
+        for key in dict.keys(self.query):
+            keyWithValue.append("{}={};".format(key, self.query[key]))
+        return ";".join(keyWithValue)
+
+    def replaceCookies(self, old='', new=''):
+        oldCookies = Cookies(old)
+        newCookies = Cookies(new)
+        for key in dict.keys(newCookies.query):
+            oldCookies.setCookies(key, newCookies.getCookies(key))
+        return oldCookies.toString()
+
 class Path:
     def __init__(self, url):
         self.url = url
@@ -118,12 +156,16 @@ class Request:
         self.header = header
         self.cookies = self.parseCookie(cookie)
         self.parsePath(self.path)
-    def parseCookie(self,cookies:Optional[Dict[str,Any]] = None):
+    def parseCookie(self,cookies:Optional[Union[Dict[str,Any],str]] = None):
         if(cookies != None):
-            cookiesJar = RequestsCookieJar()
-            for key in cookies:
-                cookiesJar.set(key,cookies[key])
-            return cookiesJar
+            if isinstance(cookies,str):
+                cookiesInstance = Cookies(cookies=cookies)
+                self.cookies = self.parseCookie(cookiesInstance.query)
+            else:
+                cookiesJar = RequestsCookieJar()
+                for key in cookies:
+                    cookiesJar.set(key,cookies[key])
+                return cookiesJar
     def parsePath(self,path):
         if path != None:
             for name in path:
