@@ -110,6 +110,8 @@ class Cookies:
         for key in dict.keys(self.query):
             keyWithValue.append("{}={};".format(key, self.query[key]))
         return ";".join(keyWithValue)
+    def toJSON(self):
+        return json.dumps(self.query)
 
     def replaceCookies(self, old='', new=''):
         oldCookies = Cookies(old)
