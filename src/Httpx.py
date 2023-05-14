@@ -87,11 +87,11 @@ class Cookies:
 
     def __init__(self, cookies=''):
         self.parserCookies(cookies=cookies)
-        self.cookie = self.toString()
+        self.cookie = self.__str__()
 
     def setCookies(self, key, value):
         self.query[key] = value
-        self.cookie = self.toString()
+        self.cookie = self.__str__()
 
     def getCookies(self, key):
         return self.query[key]
@@ -116,7 +116,7 @@ class Cookies:
         newCookies = Cookies(new)
         for key in dict.keys(newCookies.query):
             oldCookies.setCookies(key, newCookies.getCookies(key))
-        return oldCookies.toString()
+        return oldCookies.__str__()
 
 class Path:
     def __init__(self, url):
