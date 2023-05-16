@@ -76,9 +76,9 @@ class Query:
 class Param:
     def __init__(self, param):
         self.param = param
-    def __call__(self,func):
+    async def __call__(self,func):
         def wapper(*args, **kw):
-            func(*args,**kw)
+           return func(*args,**kw)
         return wapper
 
 class Cookies:
@@ -130,7 +130,7 @@ class Path:
         return wapper
 
 
-class Request(Generic[T]):
+class Request:
     url:str
     cookies:Optional['RequestsCookieJar'] = None
     auth:Optional[Any]
@@ -138,14 +138,14 @@ class Request(Generic[T]):
     method:str
     stream:bool = False
     file:Optional[BufferedReader] = None
-    json:Optional[Union['BaseModel',Dict[str,Any],T]] = None
-    form:Optional[Dict[str,Any]]
-    path:Optional[Dict[str,Any]]
-    query:Optional[Dict[str,Any]]
+    json:Optional[Union['BaseModel',Dict[str,Any]]] = None
+    form:Optional[Dict[str,Any]] = None
+    path:Optional[Dict[str,Any]] = None
+    query:Optional[Dict[str,Any]] = None
     verify:Optional[Any] = None
     def __init__(self,
         method:str,
-        url:str='',
+        url:str,
         query:Optional[Dict[str,Any]]=None,
         path:Optional[Dict[str,Any]]=None,
         file:Optional[str] = None,
@@ -194,17 +194,34 @@ class Request(Generic[T]):
         if file != None:
             with open(file=file,mode='rb') as file_:
                 return file_
+    def merge(self,old:Optional[Dict[str,Any]] = None,newDict:Optional[Dict[str,Any]] = None):
+        if(not old and newDict):
+            return newDict
+        elif(old and not newDict):
+            return old
+        elif(not old and not newDict):
+            return {}
+        elif(old and newDict):
+            return old.update(newDict)
     def __call__(self, func) -> Any:
         def wapper(*args,**kw):
             self.method = kw.get("method") or self.method
             self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.path = kw.get('path') or self.path
-            self.headers = kw.get('headers') or self.headers
-            self.query = kw.get('query') or self.query
-            self.json = kw.get('json') or self.json
-            self.auth = kw.get('auth') or self.auth
-            self.verify = kw.get('verify') or self.verify
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = self.merge(self.auth,kw.get("auth"))
+            self.verify = kw.get("verify") or self.verify
             self.file = self.readFile(kw.get('file')) or self.file
             response = requests.request(
                 method=self.method.upper(),
@@ -221,21 +238,61 @@ class Request(Generic[T]):
         return wapper
 
 class Get(Request):
+    cookies:Optional['RequestsCookieJar'] = None
+    auth:Optional[Any]
+    headers:Optional[Dict[str,str]]
+    method:str
+    stream:bool = False
+    file:Optional[BufferedReader] = None
+    json:Optional[Union['BaseModel',Dict[str,Any]]] = None
+    form:Optional[Dict[str,Any]]
+    path:Optional[Dict[str,Any]]
+    query:Optional[Dict[str,Any]]
+    verify:Optional[Any] = None
     def __init__(
         self,
         url:str,
+        query:Optional[Dict[str,Any]]=None,
         path:Optional[Dict[str,Any]]=None,
-        query:Optional[Dict[str,Any]]=None
+        file:Optional[str] = None,
+        cookie:Optional[Dict[str,Any]]=None,
+        header:Optional[Dict[str,Any]]=None,
+        auth:Optional[Any]=None,
+        json:Optional[Union['BaseModel',Dict[str,Any]]] = None,
+        form:Optional[Dict[str,Any]]=None,
+        verify:Optional[Any] = None
     ):
         self.url = url
         self.query = query
         self.path = path
+        self.auth = auth
+        self.file = self.readFile(file)
+        self.cookies = self.parseCookie(cookie)
+        self.json = json
+        self.headers = header
+        self.form  = form
+        self.verify = verify
         self.parsePath(self.path)
     def __call__(self, func:Callable):
         def wrapper(*args, **kwargs):
+            self.method = kwargs.get("method") or self.method
             self.url = kwargs.get("url") or self.url
-            self.query = kwargs.get("query") or self.query
-            self.path = kwargs.get("path") or self.path
+            self.cookies = self.parseCookie(kwargs.get('cookies'))
+            self.path = self.merge(self.path,kwargs.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kwargs.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kwargs.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kwargs.get('json'))
+            else:
+                self.json =  self.merge(self.json,kwargs.get('json'))
+
+            self.auth = kwargs.get("auth") or self.auth
+            self.verify = kwargs.get("verify") or self.verify
+            self.file = self.readFile(kwargs.get('file')) or self.file
             response = requests.get(
                 url=self.formatURLPath(self.url,self.path),
                 params=self.query,
@@ -247,7 +304,7 @@ class Get(Request):
             return func(response, *args, **kwargs)
         return wrapper
 
-class Post(Generic[T],Request):
+class Post(Request):
     def __init__(self, 
         url,
         file:Optional[str]=None,
@@ -269,14 +326,24 @@ class Post(Generic[T],Request):
         self.parsePath(self.path)
     def __call__(self,func):
         def wapper(*args, **kw):
+            self.method = kw.get("method") or self.method
             self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.path = kw.get('path') or self.path
-            self.query = kw.get('query') or self.query
-            self.json = kw.get('json') or self.json
-            self.auth = kw.get('auth') or self.auth
-            self.form = kw.get("form") or self.form
-            self.headers = kw.get('headers') or self.headers
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = kw.get("auth") or self.auth
+            self.verify = kw.get("verify") or self.verify
+            self.file = self.readFile(kw.get('file')) or self.file
             response = requests.post(
                 url=self.formatURLPath(self.url,self.path),
                 json=self.json,
@@ -312,14 +379,24 @@ class Put(Request):
         self.cookies = self.parseCookie(cookies=cookies)
     def __call__(self,func):
         def wapper(*args, **kw):
+            self.method = kw.get("method") or self.method
             self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.path = kw.get('path') or self.path
-            self.query = kw.get('query') or self.query
-            self.json = kw.get('json') or self.json
-            self.auth = kw.get('auth') or self.auth
-            self.form = kw.get("form") or self.form
-            self.headers = kw.get('headers') or self.headers
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = kw.get("auth") or self.auth
+            self.verify = kw.get("verify") or self.verify
+            self.file = self.readFile(kw.get('file')) or self.file
             response = requests.request(
                 method="PUT",
                 url=self.formatURLPath(self.url,self.path),
@@ -342,6 +419,7 @@ class Options(Request):
         query:Optional[Dict[str,Any]]=None,
         json:Optional['BaseModel']=None,
         auth:Optional[Any]=None,
+        headers:Optional[Dict[str,Any]]=None,
         form:Optional[Any] = None,
         cookies:Optional[Union[Dict[str,Any],str]] = None
     ):
@@ -353,17 +431,28 @@ class Options(Request):
         self.query = query
         self.file = self.readFile(file=file)
         self.path = self.path
+        self.headers = headers
         self.cookies = self.parseCookie(cookies=cookies)
     def __call__(self,func):
         def wapper(*args, **kw):
+            self.method = kw.get("method") or self.method
             self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.path = kw.get('path') or self.path
-            self.query = kw.get('query') or self.query
-            self.json = kw.get('json') or self.json
-            self.auth = kw.get('auth') or self.auth
-            self.form = kw.get("form") or self.form
-            self.headers = kw.get('headers') or self.headers
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = kw.get("auth") or self.auth
+            self.verify = kw.get("verify") or self.verify
+            self.file = self.readFile(kw.get('file')) or self.file
             response = requests.request(
                 method="OPTIONS",
                 url=self.formatURLPath(self.url,self.path),
@@ -399,14 +488,24 @@ class Patch(Request):
         self.parseCookie(cookie)
     def __call__(self,func):
         def wapper(*args, **kw):
+            self.method = kw.get("method") or self.method
             self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.path = kw.get('path') or self.path
-            self.query = kw.get('query') or self.query
-            self.json = kw.get('json') or self.json
-            self.auth = kw.get('auth') or self.auth
-            self.form = kw.get("form") or self.form
-            self.headers = kw.get('headers') or self.headers
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = kw.get("auth") or self.auth
+            self.verify = kw.get("verify") or self.verify
+            self.file = self.readFile(kw.get('file')) or self.file
             response = requests.request(
                 method="PATCH",
                 url=self.url,
@@ -442,12 +541,24 @@ class Delete(Request):
         self.file = self.readFile(file=file)
     def __call__(self,func):
         def wapper(*args, **kw):
+            self.method = kw.get("method") or self.method
             self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.path = kw.get('path') or self.path
-            self.query = kw.get('query') or self.query
-            self.json = kw.get('json') or self.json
-            self.auth = kw.get('auth') or self.auth
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = kw.get("auth") or self.auth
+            self.verify = kw.get("verify") or self.verify
+            self.file = self.readFile(kw.get('file')) or self.file
             response = requests.request(
                 method="DELETE",
                 url=self.formatURLPath(self.url,self.path),
@@ -456,6 +567,7 @@ class Delete(Request):
                 json=self.json,
                 cookies=self.cookies,
                 auth=self.auth,
+                verify=self.verify
             )
             return func(response,*args,**kw)
         return wapper
@@ -480,13 +592,24 @@ class Header(Request):
         self.path = path
     def __call__(self,func):
         def wapper(*args, **kw):
-            self.url = kw.get('url') or self.url
+            self.method = kw.get("method") or self.method
+            self.url = kw.get("url") or self.url
             self.cookies = self.parseCookie(kw.get('cookies'))
-            self.headers = kw.get('headers') or self.headers
-            self.path = kw.get('path') or self.path
-            self.json = kw.get("json") or self.json
-            self.auth = kw.get('auth') or self.auth
-            self.query = kw.get("query") or self.query
+            self.path = self.merge(self.path,kw.get('path'))
+            overrideHeaders:Optional[Dict[str,Any]] = kw.get("headers")
+            if overrideHeaders:
+                self.headers = self.headers or {}
+                for key in overrideHeaders:
+                    self.headers[key] = overrideHeaders[key]
+            self.query = self.merge(self.query,kw.get("query"))
+            if isinstance(self.json,BaseModel):
+                self.json =  self.merge(self.json.dict(),kw.get('json'))
+            else:
+                self.json =  self.merge(self.json,kw.get('json'))
+
+            self.auth = kw.get("auth") or self.auth
+            self.verify = kw.get("verify") or self.verify
+            self.file = self.readFile(kw.get('file')) or self.file
             response = requests.request(
                 method="HEADER",
                 url=self.formatURLPath(self.url,self.path),
@@ -499,17 +622,24 @@ class Header(Request):
             return func(response,*args,**kw)
         return wapper
 
-if __name__ == '__main__':
-    
+if __name__ == '__main__':    
     @Get("http://localhost:8388/api/author/:uid")
     def handler(response:Optional[Response]=None,**kw):
         if response != None:
             logger.info(response.json())
             return response.json()
-    @Request(method="GET")
-    def process():
-        pass
-    handler(
+    
+    @Request(method="GET",url="https://www.google.com")
+    def process(response:Optional[Response] = None):
+        if(response != None):
+            return response.json()
+        return ""
+    
+    @Options(url="https://api.bilibili.com/x/relation/stat")
+    def getUserSpace(response:Optional[Response] = None,**kw):
+        if(response != None):
+            return response
+    result = handler(
         path={
             "uid":20
         },
@@ -518,3 +648,10 @@ if __name__ == '__main__':
             "size":10
         }
     )
+    print(result)
+    responseData = getUserSpace(
+        query={
+            "vmid":50660116     
+        }
+    )
+    print(responseData)
